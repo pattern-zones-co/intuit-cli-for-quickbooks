@@ -108,7 +108,7 @@ Steps 1-5 happen interactively. Every subsequent CLI call auto-refreshes the acc
 | Access token | 1 hour | Yes, by the CLI on next API call |
 | Refresh token | 101 days from issue | No — re-run `intuit auth login` when it expires |
 
-Tokens are encrypted with AES-256-GCM, keyed by the OS keychain (macOS Keychain, Windows Credential Manager, Linux Secret Service), and written with `0600` permissions.
+Tokens are encrypted with AES-256-GCM. Each profile's key lives in its own key file, `~/.config/intuit-cli/<profile>.key`, separate from the token file. Both are written with `0600` permissions, and token writes are atomic. If the key file is lost or doesn't match, commands fail with an error naming both files; run `auth login` again to start over.
 
 ### Picking a QuickBooks company
 
@@ -292,7 +292,7 @@ Credentials and Premium scopes are covered under [Configuration](#configuration)
 
 Use `--debug` for full HTTP request/response logging. Share the `intuit_tid` value with Intuit support for escalation.
 
-To uninstall fully: `npm uninstall -g intuit-cli && rm -rf ~/.config/intuit-cli` (on macOS, also `security delete-generic-password -s intuit-cli` to clear the keychain entry).
+To uninstall fully: `npm uninstall -g intuit-cli && rm -rf ~/.config/intuit-cli`.
 
 ## Development
 

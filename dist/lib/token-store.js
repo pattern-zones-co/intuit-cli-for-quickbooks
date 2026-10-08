@@ -3,15 +3,18 @@ import path from "node:path";
 import os from "node:os";
 import crypto from "node:crypto";
 import { createOAuthClient, loadRefreshToken, refreshExpiresAt } from "./oauth.js";
-import { getOrCreateKey, deleteKey } from "./keychain.js";
+import { readKey, readOrCreateKey, deleteKey, writeFileAtomic } from "./key-file.js";
 import { configureTls } from "./tls.js";
 const TOKEN_DIR = path.join(os.homedir(), ".config", "intuit-cli");
 const PROFILES_PATH = path.join(TOKEN_DIR, "profiles.json");
 function tokenPath(profile) {
     return path.join(TOKEN_DIR, `${profile}.tokens.enc.json`);
 }
+function keyPath(profile) {
+    return path.join(TOKEN_DIR, `${profile}.key`);
+}
 function encrypt(plaintext, profile) {
-    const key = getOrCreateKey(profile);
+    const key = readOrCreateKey(keyPath(profile));
     const iv = crypto.randomBytes(12);
     const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
     let encrypted = cipher.update(plaintext, "utf-8", "hex");
@@ -24,12 +27,22 @@ function encrypt(plaintext, profile) {
     };
 }
 function decrypt(payload, profile) {
-    const key = getOrCreateKey(profile);
+    const key = readKey(keyPath(profile));
+    if (!key) {
+        throw new Error(`Can't decrypt ${tokenPath(profile)}: key file ${keyPath(profile)} is missing. ` +
+            `Restore it, or run \`intuit auth login --profile ${profile}\` to start over.`);
+    }
     const decipher = crypto.createDecipheriv("aes-256-gcm", key, Buffer.from(payload.iv, "hex"));
     decipher.setAuthTag(Buffer.from(payload.tag, "hex"));
-    let decrypted = decipher.update(payload.data, "hex", "utf-8");
-    decrypted += decipher.final("utf-8");
-    return decrypted;
+    try {
+        let decrypted = decipher.update(payload.data, "hex", "utf-8");
+        decrypted += decipher.final("utf-8");
+        return decrypted;
+    }
+    catch {
+        throw new Error(`Can't decrypt ${tokenPath(profile)} with key file ${keyPath(profile)}: wrong key or corrupt file. ` +
+            `Restore the matching key, or run \`intuit auth login --profile ${profile}\` to start over.`);
+    }
 }
 function loadProfiles() {
     try {
@@ -89,23 +102,26 @@ export const profileStore = {
     }
 };
 export const tokenStore = {
+    /** Null when the profile has no token file. Throws when it has one that can't be read. */
     get(profile) {
         const p = profile || profileStore.getActive();
+        let raw;
         try {
-            const raw = fs.readFileSync(tokenPath(p), "utf-8");
-            const payload = JSON.parse(raw);
-            const decrypted = decrypt(payload, p);
-            return JSON.parse(decrypted);
+            raw = fs.readFileSync(tokenPath(p), "utf-8");
         }
-        catch {
-            return null;
+        catch (err) {
+            if (err.code === "ENOENT")
+                return null;
+            throw err;
         }
+        const payload = JSON.parse(raw);
+        return JSON.parse(decrypt(payload, p));
     },
     set(data, profile) {
         const p = profile || profileStore.getActive();
-        fs.mkdirSync(TOKEN_DIR, { recursive: true });
+        fs.mkdirSync(TOKEN_DIR, { recursive: true, mode: 0o700 });
         const payload = encrypt(JSON.stringify(data), p);
-        fs.writeFileSync(tokenPath(p), JSON.stringify(payload, null, 2), { mode: 0o600 });
+        writeFileAtomic(tokenPath(p), JSON.stringify(payload, null, 2));
     },
     clear(profile) {
         const p = profile || profileStore.getActive();
@@ -115,7 +131,7 @@ export const tokenStore = {
         catch {
             // file doesn't exist
         }
-        deleteKey(p);
+        deleteKey(keyPath(p));
     },
     async getValidToken(profile) {
         const p = profile || profileStore.getActive();
