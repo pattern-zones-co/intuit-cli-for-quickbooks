@@ -47,7 +47,6 @@
     "developer-tools"
   ],
   "dependencies": {
-    "@napi-rs/keyring": "^1.2.0",
     "commander": "^12.1.0",
     "dotenv": "^16.4.5",
     "intuit-oauth": "^4.2.3",

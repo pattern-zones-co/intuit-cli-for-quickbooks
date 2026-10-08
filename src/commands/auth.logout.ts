@@ -2,9 +2,15 @@ import { tokenStore, profileStore } from "../lib/token-store.js";
 
 export function authLogout(profile?: string) {
   const p = profile || profileStore.getActive();
-  const token = tokenStore.get(p);
+  let authenticated: boolean;
+  try {
+    authenticated = !!tokenStore.get(p)?.access_token;
+  } catch {
+    // A token file that can't be decrypted is still something to log out of.
+    authenticated = true;
+  }
 
-  if (!token?.access_token) {
+  if (!authenticated) {
     console.log(`Not authenticated (profile: ${p}). Nothing to do.`);
     return;
   }
